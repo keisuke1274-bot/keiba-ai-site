@@ -37,29 +37,31 @@ def get_soup(url):
 def race_info(soup, race_id):
     data = soup.select_one(".RaceData01")
     text = data.get_text(" ", strip=True) if data else soup.get_text(" ", strip=True)
+
     m = re.search(r"(芝|ダート|ダ|障害|障)\s*([0-9,]+)\s*m", text)
     if not m:
-        raise ValueError("レースの距離・コースを取得できませんでした。")
+        raise ValueError("距離・コースを取得できませんでした。")
+
     surface_text = m.group(1)
     surface = 1 if surface_text == "芝" else 0
     distance = int(m.group(2).replace(",", ""))
 
-    going_match = re.search(r"馬場\s*[:：]\s*(稍重|不良|稍|重|良)", text)
-    weather_match = re.search(r"天候\s*[:：]\s*(小雨|小雪|晴|曇|雨|雪)", text)
-    if not going_match or not weather_match:
-        raise ValueError("馬場状態または天候を取得できませんでした。")
-    going = going_match.group(1)
-    weather = weather_match.group(1)
-    if going not in GOING_CODES or weather not in WEATHER_CODES:
-        raise ValueError("馬場・天候のコードが未対応です。")
+    going_match = re.search(r"(?:馬場|馬場状態)\s*[:：]?\s*(稍重|不良|稍|重|良)", text)
+    weather_match = re.search(r"(?:天候)\s*[:：]?\s*(小雨|小雪|晴|曇|雨|雪)", text)
+
+    # 未取得時は欠損値とし、モデルの学習済み前処理に渡す
+    going = GOING_CODES.get(going_match.group(1), np.nan) if going_match else np.nan
+    weather = WEATHER_CODES.get(weather_match.group(1), np.nan) if weather_match else np.nan
+
     place_id = int(race_id[4:6])
     if not 1 <= place_id <= 10:
         raise ValueError("競馬場コードを判定できません。")
+
     return {
         "distance": distance,
         "course": surface,
-        "course_sit": GOING_CODES[going],
-        "weather": WEATHER_CODES[weather],
+        "course_sit": going,
+        "weather": weather,
         "place_id": place_id,
     }
 
