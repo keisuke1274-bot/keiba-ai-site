@@ -162,7 +162,7 @@ def horse_history(hid):
         return []
 
     headers = [
-        c.get_text(" ", strip=True)
+        re.sub(r"\s+", "", c.get_text(" ", strip=True))
         for c in trs[0].find_all(["th", "td"])
     ]
 
