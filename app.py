@@ -144,21 +144,28 @@ def get_entries(soup):
     return rows
 
 def horse_history(hid):
-    soup = get_soup(f"https://db.netkeiba.com/horse/{hid}/")
-    table = soup.select_one("table.db_h_race_results")
+    url = f"https://db.netkeiba.com/horse/result/{hid}/"
+    soup = get_soup(url)
+
+    table = next(
+        (t for t in soup.find_all("table")
+         if "着順" in t.get_text() and "距離" in t.get_text()),
+        None
+    )
     if table is None:
-        table = next(
-            (t for t in soup.find_all("table")
-             if "着順" in t.get_text() and "距離" in t.get_text()),
-            None
+        raise ValueError(
+            f"馬ID {hid}: 戦績ページから過去成績表を取得できませんでした。"
         )
-    if table is None:
-        raise ValueError(f"馬ID {hid} の過去成績表を取得できませんでした。")
 
     trs = table.select("tr")
     if len(trs) < 2:
         return []
-    headers = [x.get_text(" ", strip=True) for x in trs[0].find_all(["th", "td"])]
+
+    headers = [
+        c.get_text(" ", strip=True)
+        for c in trs[0].find_all(["th", "td"])
+    ]
+
     def col_index(words):
         for i, h in enumerate(headers):
             if any(w in h for w in words):
@@ -168,28 +175,42 @@ def horse_history(hid):
     rank_i = col_index(["着順"])
     dist_i = col_index(["距離"])
     date_i = col_index(["日付"])
+
     if rank_i is None or dist_i is None:
-        raise ValueError(f"馬ID {hid} の成績表の列を判定できません。")
+        raise ValueError(f"馬ID {hid}: 成績表の列を判定できません。")
 
     records = []
     for tr in trs[1:]:
-        cells = [x.get_text(" ", strip=True) for x in tr.find_all(["th", "td"])]
+        cells = [
+            c.get_text(" ", strip=True)
+            for c in tr.find_all(["th", "td"])
+        ]
         if len(cells) <= max(rank_i, dist_i):
             continue
+
         rank_match = re.match(r"\s*(\d+)", cells[rank_i])
-        if not rank_match:
+        dm = re.search(
+            r"(芝|ダート|ダ|障害|障)\s*([0-9,]+)",
+            cells[dist_i]
+        )
+        if not rank_match or not dm:
             continue
-        dm = re.search(r"(芝|ダート|ダ|障害|障)\s*([0-9,]+)", cells[dist_i])
-        if not dm:
-            continue
-        surface = 1 if dm.group(1) == "芝" else 0
-        date = cells[date_i] if date_i is not None and date_i < len(cells) else ""
+
+        date = (
+            cells[date_i]
+            if date_i is not None and date_i < len(cells)
+            else ""
+        )
         records.append({
             "rank": int(rank_match.group(1)),
-            "surface": surface,
+            "surface": 1 if dm.group(1) == "芝" else 0,
             "distance": int(dm.group(2).replace(",", "")),
             "date": date
         })
+
+    if not records:
+        raise ValueError(f"馬ID {hid}: 過去成績を変換できませんでした。")
+
     return records
 
 def build_features(entry, info):
